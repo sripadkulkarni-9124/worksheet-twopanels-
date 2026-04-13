@@ -44,6 +44,16 @@ export async function POST(request: NextRequest) {
     const context = `Context: Question: "${questionText}" | Student answered: "${studentAnswer || 'blank'}" | Status: ${status} | Correct: "${correctAnswer}"`;
     const result = await chat.sendMessage(`${context}\n\nStudent says: ${message}`);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const usage = result.response.usageMetadata as any;
+    console.log('[TOKENS] chat:', {
+      prompt: usage?.promptTokenCount,
+      output: usage?.candidatesTokenCount,
+      thinking: usage?.thoughtsTokenCount ?? 0,
+      total: usage?.totalTokenCount,
+      thinkingOn: (usage?.thoughtsTokenCount ?? 0) > 0,
+    });
+
     return Response.json({ success: true, response: result.response.text() });
   } catch (err) {
     console.error('Chat error:', err);

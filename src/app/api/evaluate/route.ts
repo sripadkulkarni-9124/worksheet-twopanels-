@@ -78,6 +78,16 @@ export async function POST(request: NextRequest) {
     const clean = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
     const data: EvaluationResult = JSON.parse(clean);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const usage = result.response.usageMetadata as any;
+    console.log('[TOKENS] evaluate:', {
+      prompt: usage?.promptTokenCount,
+      output: usage?.candidatesTokenCount,
+      thinking: usage?.thoughtsTokenCount ?? 0,
+      total: usage?.totalTokenCount,
+      thinkingOn: (usage?.thoughtsTokenCount ?? 0) > 0,
+    });
+
     return Response.json({ success: true, ...data });
   } catch (err) {
     console.error('Evaluate error:', JSON.stringify(err, null, 2));
