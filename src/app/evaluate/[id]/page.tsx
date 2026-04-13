@@ -409,9 +409,86 @@ function drawMark(ctx: CanvasRenderingContext2D, mark: TeacherMark, t: ImgTransf
   ctx.restore();
 }
 
+// ─── Callout drawing helper ──────────────────────────────────────────────────
+function drawCallout(
+  ctx: CanvasRenderingContext2D,
+  t: ImgTransform,
+  bbox: AutoMark,
+  text: string,
+  icon: string,
+  iconColor: string,
+) {
+  // Callout anchor: 38% down from bbox top, left-aligned inside bbox
+  const bx1 = t.offsetX + bbox.x  * t.scaleX;
+  const by1 = t.offsetY + bbox.y  * t.scaleY;
+  const bx2 = t.offsetX + (bbox.x2 ?? bbox.x) * t.scaleX;
+  const by2 = t.offsetY + (bbox.y2 ?? bbox.y) * t.scaleY;
+  const bW = bx2 - bx1;
+  const bH = by2 - by1;
+
+  const maxW = bW * 0.55;
+  const fontSize = Math.max(10, Math.min(13, bH * 0.08));
+  const pad = fontSize * 0.7;
+  const lineH = fontSize * 1.35;
+
+  ctx.save();
+  ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+
+  // Word-wrap text to maxW - icon space
+  const iconW = fontSize * 1.2;
+  const textMaxW = maxW - iconW - pad * 2.5;
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    if (ctx.measureText(test).width > textMaxW && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+
+  const boxW = maxW;
+  const boxH = pad * 2 + lines.length * lineH;
+  const bxPos = bx1 + bW * 0.03;
+  const byPos = by1 + bH * 0.38;
+  const r = fontSize * 0.6;
+
+  // Rounded rect background
+  ctx.beginPath();
+  ctx.moveTo(bxPos + r, byPos);
+  ctx.lineTo(bxPos + boxW - r, byPos);
+  ctx.arcTo(bxPos + boxW, byPos, bxPos + boxW, byPos + r, r);
+  ctx.lineTo(bxPos + boxW, byPos + boxH - r);
+  ctx.arcTo(bxPos + boxW, byPos + boxH, bxPos + boxW - r, byPos + boxH, r);
+  ctx.lineTo(bxPos + r, byPos + boxH);
+  ctx.arcTo(bxPos, byPos + boxH, bxPos, byPos + boxH - r, r);
+  ctx.lineTo(bxPos, byPos + r);
+  ctx.arcTo(bxPos, byPos, bxPos + r, byPos, r);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(20,20,20,0.86)';
+  ctx.fill();
+
+  // Icon
+  ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.fillStyle = iconColor;
+  ctx.fillText(icon, bxPos + pad, byPos + pad + fontSize * 0.85);
+
+  // Text lines
+  ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.fillStyle = '#FFFFFF';
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], bxPos + pad + iconW, byPos + pad + fontSize * 0.85 + i * lineH);
+  }
+  ctx.restore();
+}
+
 // ─── AnnotationCanvas ────────────────────────────────────────────────────────
 function AnnotationCanvas({
-  sessionId, containerRef, autoMarks, showToolbar, naturalW, naturalH, activeQ, onQuestionClick,
+  sessionId, containerRef, autoMarks, showToolbar, naturalW, naturalH, activeQ, onQuestionClick, showFeedback, questions,
 }: {
   sessionId: string;
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -421,6 +498,8 @@ function AnnotationCanvas({
   naturalH: number;
   activeQ?: number;
   onQuestionClick?: (index: number) => void;
+  showFeedback?: boolean;
+  questions?: EvaluatedQuestion[];
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [marks, setMarks] = useState<TeacherMark[]>(() => getAnnotations(sessionId));
@@ -472,6 +551,21 @@ function AnnotationCanvas({
     }
     // Manual marks on top
     for (const m of markList) drawMark(ctx, m, t);
+    // Feedback callouts
+    if (showFeedback && questions?.length) {
+      const bboxes = autoMarks.filter(m => m.type === 'bbox');
+      bboxes.forEach((bbox, i) => {
+        const q = questions[i];
+        if (!q) return;
+        const isCorrect = q.status === 'correct';
+        const text = isCorrect
+          ? (q.vedInsight || q.feedback || 'Great job!')
+          : (q.feedback || q.vedInsight || 'Check the correct answer.');
+        const icon = isCorrect ? '✓' : '✗';
+        const iconColor = isCorrect ? '#4ADE80' : '#FCA5A5';
+        drawCallout(ctx, t, bbox, text, icon, iconColor);
+      });
+    }
     // Live drag preview
     if (previewEnd && dragStart.current) {
       drawMark(ctx, {
@@ -479,7 +573,7 @@ function AnnotationCanvas({
         x: dragStart.current.imgX, y: dragStart.current.imgY,
       }, t, { x2: previewEnd.imgX2, y2: previewEnd.imgY2 });
     }
-  }, [tool, autoMarks, naturalW, naturalH, activeQ]);
+  }, [tool, autoMarks, naturalW, naturalH, activeQ, showFeedback, questions]);
 
   useEffect(() => {
     const resize = () => {
@@ -644,6 +738,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
   const [activeQ, setActiveQ] = useState(0);
   const [showChat, setShowChat] = useState(false);
   const [annotating, setAnnotating] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [reattemptQ, setReattemptQ] = useState<EvaluatedQuestion | null>(null);
   const [reattemptResult, setReattemptResult] = useState<{ status: EvaluatedQuestion['status']; feedback: string } | null>(null);
   const [showScanAgain, setShowScanAgain] = useState(false);
@@ -827,11 +922,13 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
               naturalH={imgNatural.h}
               activeQ={activeQ}
               onQuestionClick={i => { setActiveQ(i); setShowChat(false); }}
+              showFeedback={showFeedback}
+              questions={questions}
             />
           </div>
 
           {/* Image toolbar */}
-          <div className="py-2.5 px-4 flex items-center justify-center border-t border-gray-100 shrink-0">
+          <div className="py-2.5 px-4 flex items-center justify-between border-t border-gray-100 shrink-0">
             <div className="flex items-center gap-2">
               <button className="text-gray-400 hover:text-gray-600 p-1">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -845,6 +942,15 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
                 </svg>
               </button>
             </div>
+            <button
+              onClick={() => setShowFeedback(f => !f)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
+              style={showFeedback
+                ? { background: '#F59E0B', color: 'white' }
+                : { background: '#f3f4f6', color: '#374151' }}
+            >
+              💬 {showFeedback ? 'Hide Feedback' : 'Show Feedback'}
+            </button>
           </div>
         </div>
 
