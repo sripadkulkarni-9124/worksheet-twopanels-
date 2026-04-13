@@ -351,15 +351,17 @@ function drawMark(ctx: CanvasRenderingContext2D, mark: TeacherMark, t: ImgTransf
       break;
     }
     case 'circle': {
-      const cColor = mark.color ?? '#DC2626';
+      const cColor = mark.color ?? '#F59E0B';
       ctx.strokeStyle = cColor;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
       const cx = (x + x2) / 2;
       const cy = (y + y2) / 2;
       // Use exact bbox dimensions when x2,y2 are provided by the LLM
       const hasExact = mark.x2 !== undefined && mark.y2 !== undefined;
-      const rx = hasExact ? Math.abs(x2 - x) / 2 : SIZE * 0.6;
-      const ry = hasExact ? Math.abs(y2 - y) / 2 : SIZE * 0.35;
+      const rawRx = hasExact ? Math.abs(x2 - x) / 2 : SIZE * 0.6;
+      const rawRy = hasExact ? Math.abs(y2 - y) / 2 : SIZE * 0.35;
+      const rx = Math.max(rawRx, SIZE * 0.4);
+      const ry = Math.max(rawRy, SIZE * 0.25);
       ctx.beginPath();
       ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
       ctx.stroke();
@@ -409,7 +411,7 @@ function drawMark(ctx: CanvasRenderingContext2D, mark: TeacherMark, t: ImgTransf
 
 // ─── AnnotationCanvas ────────────────────────────────────────────────────────
 function AnnotationCanvas({
-  sessionId, containerRef, autoMarks, showToolbar, naturalW, naturalH,
+  sessionId, containerRef, autoMarks, showToolbar, naturalW, naturalH, activeQ, onQuestionClick,
 }: {
   sessionId: string;
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -417,6 +419,8 @@ function AnnotationCanvas({
   showToolbar: boolean;
   naturalW: number;
   naturalH: number;
+  activeQ?: number;
+  onQuestionClick?: (index: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [marks, setMarks] = useState<TeacherMark[]>(() => getAnnotations(sessionId));
@@ -439,8 +443,33 @@ function AnnotationCanvas({
     if (!ctx) return;
     const t = getImgTransform(naturalW, naturalH, canvas.width, canvas.height);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // LLM auto-marks (base layer)
-    for (const m of autoMarks) drawMark(ctx, { id: 'auto', ...m }, t);
+    // LLM auto-marks (base layer) — highlight the active question's bbox
+    let bboxIdx = 0;
+    for (const m of autoMarks) {
+      if (m.type === 'bbox') {
+        const isActive = activeQ !== undefined && bboxIdx === activeQ;
+        if (isActive) {
+          // Draw highlighted version
+          const x  = t.offsetX + m.x  * t.scaleX;
+          const y  = t.offsetY + m.y  * t.scaleY;
+          const x2 = t.offsetX + (m.x2 ?? m.x) * t.scaleX;
+          const y2 = t.offsetY + (m.y2 ?? m.y) * t.scaleY;
+          const bColor = m.color ?? '#9CA3AF';
+          ctx.save();
+          ctx.strokeStyle = bColor;
+          ctx.lineWidth = 4;
+          ctx.strokeRect(x, y, x2 - x, y2 - y);
+          ctx.fillStyle = bColor + '35';
+          ctx.fillRect(x, y, x2 - x, y2 - y);
+          ctx.restore();
+        } else {
+          drawMark(ctx, { id: 'auto', ...m }, t);
+        }
+        bboxIdx++;
+      } else {
+        drawMark(ctx, { id: 'auto', ...m }, t);
+      }
+    }
     // Manual marks on top
     for (const m of markList) drawMark(ctx, m, t);
     // Live drag preview
@@ -450,7 +479,7 @@ function AnnotationCanvas({
         x: dragStart.current.imgX, y: dragStart.current.imgY,
       }, t, { x2: previewEnd.imgX2, y2: previewEnd.imgY2 });
     }
-  }, [tool, autoMarks, naturalW, naturalH]);
+  }, [tool, autoMarks, naturalW, naturalH, activeQ]);
 
   useEffect(() => {
     const resize = () => {
@@ -476,6 +505,22 @@ function AnnotationCanvas({
     const { x, y } = canvasToImg(px, py, t);
     return { imgX: x, imgY: y };
   };
+
+  // Click on bbox when not in toolbar mode — find which question was clicked
+  const onBboxClick = useCallback((e: React.PointerEvent) => {
+    if (!onQuestionClick) return;
+    const pos = getImgPos(e);
+    const bboxes = autoMarks.filter(m => m.type === 'bbox');
+    for (let i = 0; i < bboxes.length; i++) {
+      const m = bboxes[i];
+      const x1 = m.x, y1 = m.y, x2 = m.x2 ?? m.x, y2 = m.y2 ?? m.y;
+      if (pos.imgX >= x1 && pos.imgX <= x2 && pos.imgY >= y1 && pos.imgY <= y2) {
+        onQuestionClick(i);
+        return;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onQuestionClick, autoMarks]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -577,12 +622,12 @@ function AnnotationCanvas({
         ref={canvasRef}
         className="absolute inset-0 w-full h-full"
         style={{
-          cursor: showToolbar ? (isDrag ? 'crosshair' : 'default') : 'default',
+          cursor: showToolbar ? (isDrag ? 'crosshair' : 'default') : (onQuestionClick ? 'pointer' : 'default'),
           touchAction: 'none',
           zIndex: 10,
-          pointerEvents: showToolbar ? 'auto' : 'none',
+          pointerEvents: (showToolbar || onQuestionClick) ? 'auto' : 'none',
         }}
-        onPointerDown={showToolbar ? onPointerDown : undefined}
+        onPointerDown={showToolbar ? onPointerDown : (onQuestionClick ? onBboxClick : undefined)}
         onPointerMove={showToolbar ? onPointerMove : undefined}
         onPointerUp={showToolbar ? onPointerUp : undefined}
         onPointerLeave={showToolbar ? onPointerUp : undefined}
@@ -780,11 +825,13 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
               showToolbar={annotating}
               naturalW={imgNatural.w}
               naturalH={imgNatural.h}
+              activeQ={activeQ}
+              onQuestionClick={i => { setActiveQ(i); setShowChat(false); }}
             />
           </div>
 
           {/* Image toolbar */}
-          <div className="py-2.5 px-4 flex items-center justify-between border-t border-gray-100 shrink-0">
+          <div className="py-2.5 px-4 flex items-center justify-center border-t border-gray-100 shrink-0">
             <div className="flex items-center gap-2">
               <button className="text-gray-400 hover:text-gray-600 p-1">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -798,16 +845,6 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
                 </svg>
               </button>
             </div>
-            {/* Add marks toggle */}
-            <button
-              onClick={() => setAnnotating(!annotating)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
-              style={annotating
-                ? { background: 'linear-gradient(135deg, #7B2FF7, #E8633B)', color: 'white' }
-                : { background: '#f3f4f6', color: '#374151' }}
-            >
-              ✏️ {annotating ? 'Done' : 'Add Marks'}
-            </button>
           </div>
         </div>
 
