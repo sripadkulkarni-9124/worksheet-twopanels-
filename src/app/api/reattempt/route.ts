@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { thinkingConfig: { thinkingBudget: 0 } } as object });
     const result = await model.generateContent(`
 You are evaluating a student's reattempt answer.
 

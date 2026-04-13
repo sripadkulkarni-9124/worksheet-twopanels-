@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ success: true, ...mockResult() });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { thinkingConfig: { thinkingBudget: 0 } } as object });
 
     const result = await model.generateContent([
       EVALUATE_PROMPT,

@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ marks: [] });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { thinkingConfig: { thinkingBudget: 0 } } as object });
     const result = await model.generateContent([
       ANNOTATE_PROMPT(questions),
       { inlineData: { data: imageBase64, mimeType } },
