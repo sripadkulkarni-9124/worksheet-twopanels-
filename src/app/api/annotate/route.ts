@@ -16,34 +16,37 @@ ${questions.map(q => `Q${q.number}: "${q.questionText}" — Student wrote: "${q.
 
 For EACH question produce TWO marks:
 
-1. A "bbox" mark — a colored rectangle that fits EXACTLY around the visible question card/block:
-   - Detect the actual left and right edges of the question card as it appears in the image (it may have margins from the image edge — do NOT extend to the image border)
-   - x, y = top-left corner of the card border (fraction of image 0.0–1.0)
-   - x2, y2 = bottom-right corner of the card border (fraction of image 0.0–1.0)
-   - The box must hug the card edges precisely: same left/right as the card's visible border, top at the question heading, bottom at the end of the answer area
-   - color = the color listed above for that question's status
+1. A "bbox" mark — a colored rectangle around the question card/block:
+   MEASURING RULES (follow exactly):
+   - Look for the visible BORDER LINE of the question card (a printed rectangle with a stroke/outline)
+   - x  = fraction where the card's LEFT border line is (NOT the image left edge)
+   - y  = fraction where the card's TOP border line is (NOT the image top edge)
+   - x2 = fraction where the card's RIGHT border line is (NOT the image right edge)
+   - y2 = fraction where the card's BOTTOM border line is — this is the bottom of the ANSWER AREA, NOT the bottom of the page
+   - The bbox must STOP at the card border — do NOT extend into grid paper, margins, or page number areas below/outside the card
+   - color = the status color listed above
 
 2. A correction mark placed just to the right of the student's written answer:
    - "correct"           → {"type":"tick",  "x":…, "y":…}
    - "incorrect"         → {"type":"cross", "x":…, "y":…}
-   - "partially_correct" → {"type":"circle","x":…,"y":…,"x2":…,"y2":…}  (bounding the answer cells only)
+   - "partially_correct" → {"type":"circle","x":…,"y":…,"x2":…,"y2":…}
    - "unanswered"        → {"type":"cross", "x":…, "y":…}
 
-Rules:
-- All coordinates are fractions of image width/height (0.0 = left/top, 1.0 = right/bottom)
-- CRITICAL: x and x2 must match the actual left/right borders of the question card — never use 0.0 or 1.0 unless the card truly touches the image edge
-- The bbox left edge (x) and right edge (x2) should be the same for every question since they share the same card column width
-- For tick/cross: x,y is a point just to the right of the student's written answer
-- Every question MUST have exactly one bbox mark and one correction mark
+STRICT RULES:
+- All coordinates = fractions of full image width/height (0.0–1.0)
+- NEVER output x=0.0 or x2=1.0 or y=0.0 or y2=1.0 unless the card border literally touches that image edge
+- y2 must be INSIDE the card — it must be ABOVE any grid/graph paper, page numbers, or footer text that appears below the card
+- The correction mark (tick/cross/circle) must be INSIDE the card boundaries
+- Every question needs exactly one bbox + one correction mark
 
 Return ONLY a valid JSON array, no markdown, no explanation:
 [
-  {"type":"bbox",  "x":0.03,"y":0.10,"x2":0.97,"y2":0.35,"color":"#16A34A"},
-  {"type":"tick",  "x":0.88,"y":0.28},
-  {"type":"bbox",  "x":0.03,"y":0.37,"x2":0.97,"y2":0.62,"color":"#DC2626"},
-  {"type":"cross", "x":0.88,"y":0.55},
-  {"type":"bbox",  "x":0.03,"y":0.64,"x2":0.97,"y2":0.90,"color":"#F59E0B"},
-  {"type":"circle","x":0.55,"y":0.78,"x2":0.90,"y2":0.86}
+  {"type":"bbox",  "x":0.04,"y":0.08,"x2":0.96,"y2":0.32,"color":"#16A34A"},
+  {"type":"tick",  "x":0.86,"y":0.25},
+  {"type":"bbox",  "x":0.04,"y":0.34,"x2":0.96,"y2":0.58,"color":"#DC2626"},
+  {"type":"cross", "x":0.86,"y":0.52},
+  {"type":"bbox",  "x":0.04,"y":0.60,"x2":0.96,"y2":0.82,"color":"#F59E0B"},
+  {"type":"circle","x":0.55,"y":0.72,"x2":0.88,"y2":0.80}
 ]`;
 
 export async function POST(request: NextRequest) {
