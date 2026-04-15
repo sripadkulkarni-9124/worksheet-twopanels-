@@ -23,12 +23,14 @@ export interface EvaluationResult {
 }
 
 export interface AutoMark {
-  type: 'tick' | 'cross' | 'circle' | 'underline' | 'arrow' | 'bbox';
+  type: 'tick' | 'cross' | 'circle' | 'underline' | 'arrow' | 'bbox' | 'quad';
   x: number;
   y: number;
   x2?: number;
   y2?: number;
   color?: string;
+  // quad: 4 corner points [[tlX,tlY],[trX,trY],[brX,brY],[blX,blY]] as image fractions
+  pts?: [number, number][];
 }
 
 export interface EvaluationSession {

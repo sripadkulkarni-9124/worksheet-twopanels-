@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getGeminiClient } from '@/lib/gemini';
-import { EvaluatedQuestion } from '@/types';
+import { EvaluatedQuestion, AutoMark } from '@/types';
 
 const STATUS_COLOR: Record<string, string> = {
   correct: '#16A34A',
@@ -9,46 +9,47 @@ const STATUS_COLOR: Record<string, string> = {
   unanswered: '#9CA3AF',
 };
 
-const ANNOTATE_PROMPT = (questions: EvaluatedQuestion[]) => `You are analyzing a student's worksheet image to extract precise bounding box coordinates.
+/**
+ * Strategy: ask Gemini for
+ *   1. The 4 corners of the worksheet PAGE in image-fraction coords (handles camera tilt)
+ *   2. Each card's position as fractions WITHIN the page (u=horizontal, v=vertical)
+ *
+ * Then bilinear-interpolate page corners to compute actual quad polygon points.
+ * This is mathematically correct for any perspective angle.
+ */
+const ANNOTATE_PROMPT = (questions: EvaluatedQuestion[]) => `Analyze this worksheet photo. The photo may be taken at an angle.
 
-TASK: For each question card below, find its printed border rectangle and output coordinates.
+Questions (top to bottom):
+${questions.map(q => `Q${q.number}: status=${q.status} | color=${STATUS_COLOR[q.status]}`).join('\n')}
 
-Questions to locate:
-${questions.map(q => `Q${q.number}: "${q.questionText.slice(0, 60)}" | status=${q.status} | color=${STATUS_COLOR[q.status]}`).join('\n')}
+Return ONLY this JSON structure, no markdown:
+{
+  "page": [[tlX,tlY],[trX,trY],[brX,brY],[blX,blY]],
+  "cards": [
+    {
+      "q": 1,
+      "u1": 0.02, "v1": 0.04,
+      "u2": 0.97, "v2": 0.27,
+      "color": "#16A34A",
+      "mark": {"type": "tick", "u": 0.85, "v": 0.18}
+    }
+  ]
+}
 
-STEP 1 — LOCATE EACH QUESTION CARD:
-Look at the image carefully. Each question is inside a printed rectangle (may be dashed, dotted, or solid border).
-For EACH question card, mentally note:
-- Where does the LEFT edge of the card border sit? (as fraction of image width)
-- Where does the RIGHT edge of the card border sit? (as fraction of image width)
-- Where does the TOP edge of the card border sit? (as fraction of image height)
-- Where does the BOTTOM edge of the card border sit? (as fraction of image height)
+DEFINITIONS:
+- page: The 4 corners of the physical worksheet paper as fractions of the IMAGE (0.0–1.0). If photo is angled these will NOT form a perfect rectangle. Order: tl=top-left, tr=top-right, br=bottom-right, bl=bottom-left.
+- u1/v1/u2/v2: Position of the dashed-border card as fractions of the PAGE dimensions. u=0 means left edge of page, u=1 means right edge. v=0 means top of page, v=1 means bottom.
+- mark.u/v: Position of the correction symbol as page fractions.
+- mark.type: "tick" for correct, "cross" for incorrect/unanswered, "circle" for partially_correct.`;
 
-The card border is the INNER rectangle around just that question — NOT the outer page border, NOT the full image width.
-Most worksheets have left/right margins so cards do NOT start at 0.0 or end at 1.0.
-
-STEP 2 — OUTPUT MARKS:
-For each question output exactly 2 marks:
-A) bbox mark with the card's border coordinates
-B) correction mark placed inside the card near the student's answer:
-   - correct → tick
-   - incorrect → cross
-   - partially_correct → circle (with x2,y2 around the answer area)
-   - unanswered → cross
-
-OUTPUT FORMAT — return ONLY a JSON array, zero markdown, zero explanation:
-[
-  {"type":"bbox","x":<left_edge>,"y":<top_edge>,"x2":<right_edge>,"y2":<bottom_edge>,"color":"<status_color>"},
-  {"type":"tick","x":<x>,"y":<y>},
-  ... repeat for each question
-]
-
-VALIDATION before outputting:
-- x must be > 0.01 (card does not start at image left)
-- x2 must be < 0.99 (card does not end at image right)
-- x2 - x should be between 0.5 and 0.95 (typical card width)
-- y2 - y should be > 0.05 (card has real height)
-- Each question's y range must NOT overlap with another question's y range`;
+/** Bilinear interpolation: maps (u,v) within page quad → image [x,y] fractions */
+function bilinear(page: [number, number][], u: number, v: number): [number, number] {
+  const [tl, tr, br, bl] = page as [[number,number],[number,number],[number,number],[number,number]];
+  return [
+    (1-u)*(1-v)*tl[0] + u*(1-v)*tr[0] + u*v*br[0] + (1-u)*v*bl[0],
+    (1-u)*(1-v)*tl[1] + u*(1-v)*tr[1] + u*v*br[1] + (1-u)*v*bl[1],
+  ];
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -59,7 +60,8 @@ export async function POST(request: NextRequest) {
       return Response.json({ marks: [] });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { thinkingConfig: { thinkingBudget: 0 } } as object });
+    // Thinking budget improves spatial/perspective reasoning accuracy
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { thinkingConfig: { thinkingBudget: 2048 } } as object });
     const result = await model.generateContent([
       ANNOTATE_PROMPT(questions),
       { inlineData: { data: imageBase64, mimeType } },
@@ -67,22 +69,44 @@ export async function POST(request: NextRequest) {
 
     const text = result.response.text();
     const clean = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
-    const rawMarks = JSON.parse(clean);
-    // Log exact coordinates Gemini returned for debugging
-    console.log('[ANNOTATE] raw marks:', JSON.stringify(rawMarks, null, 2));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw: { page?: [number,number][]; cards?: any[] } = JSON.parse(clean);
+    console.log('[ANNOTATE] raw response:', JSON.stringify(raw, null, 2));
 
-    // Safety net: if Gemini returns bbox touching image edges, shrink inward
-    const marks = rawMarks.map((m: { type: string; x: number; y: number; x2?: number; y2?: number; color?: string }) => {
-      if (m.type !== 'bbox') return m;
-      const fixed = { ...m };
-      // If x is suspiciously close to 0, likely an error — nudge in
-      if (fixed.x !== undefined && fixed.x < 0.02) fixed.x = 0.03;
-      if (fixed.x2 !== undefined && fixed.x2 > 0.98) fixed.x2 = 0.97;
-      if (fixed.y !== undefined && fixed.y < 0.01) fixed.y = 0.01;
-      if (fixed.y2 !== undefined && fixed.y2 > 0.99) fixed.y2 = 0.99;
-      console.log(`[ANNOTATE] bbox Q: x=${fixed.x} x2=${fixed.x2} width=${((fixed.x2 ?? 0) - fixed.x).toFixed(3)}`);
-      return fixed;
-    });
+    // Fallback page = full image corners (axis-aligned rects if page not detected)
+    const page: [number,number][] = (Array.isArray(raw.page) && raw.page.length === 4)
+      ? raw.page
+      : [[0,0],[1,0],[1,1],[0,1]];
+
+    const marks: AutoMark[] = [];
+
+    for (const card of (raw.cards ?? [])) {
+      const { q, u1, v1, u2, v2, color, mark } = card;
+
+      // Compute the 4 actual image-fraction corners via bilinear interpolation
+      const pts: [number, number][] = [
+        bilinear(page, u1, v1), // top-left
+        bilinear(page, u2, v1), // top-right
+        bilinear(page, u2, v2), // bottom-right
+        bilinear(page, u1, v2), // bottom-left
+      ];
+
+      const xs = pts.map(p => p[0]);
+      const ys = pts.map(p => p[1]);
+      const x  = Math.min(...xs), y  = Math.min(...ys);
+      const x2 = Math.max(...xs), y2 = Math.max(...ys);
+
+      console.log(`[ANNOTATE] Q${q}: tl=${pts[0].map(v=>v.toFixed(3))} tr=${pts[1].map(v=>v.toFixed(3))} w=${(x2-x).toFixed(3)} h=${(y2-y).toFixed(3)}`);
+
+      marks.push({ type: 'quad', pts, x, y, x2, y2, color: color ?? STATUS_COLOR['unanswered'] });
+
+      if (mark) {
+        const [mx, my] = bilinear(page, mark.u, mark.v);
+        const corrMark: AutoMark = { type: mark.type as AutoMark['type'], x: mx, y: my };
+        if (mark.type === 'circle') { corrMark.x2 = mx + 0.04; corrMark.y2 = my + 0.02; }
+        marks.push(corrMark);
+      }
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const usage = result.response.usageMetadata as any;
@@ -91,7 +115,6 @@ export async function POST(request: NextRequest) {
       output: usage?.candidatesTokenCount,
       thinking: usage?.thoughtsTokenCount ?? 0,
       total: usage?.totalTokenCount,
-      thinkingOn: (usage?.thoughtsTokenCount ?? 0) > 0,
     });
 
     return Response.json({ marks });

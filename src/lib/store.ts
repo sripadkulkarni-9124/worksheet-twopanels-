@@ -68,16 +68,17 @@ export function updateQuestion(sessionId: string, questionIndex: number, updates
 
 const ANNOTATIONS_KEY = 'ved-annotations';
 
-export type MarkType = 'tick' | 'cross' | 'circle' | 'underline' | 'arrow' | 'bbox';
+export type MarkType = 'tick' | 'cross' | 'circle' | 'underline' | 'arrow' | 'bbox' | 'quad';
 
 export interface TeacherMark {
   id: string;
   type: MarkType;
-  x: number;   // click/drag start x (as % of canvas width)
-  y: number;   // click/drag start y (as % of canvas height)
-  x2?: number; // drag end x (for circle, underline, arrow, bbox)
-  y2?: number; // drag end y
-  color?: string; // override color (used by auto bbox marks)
+  x: number;
+  y: number;
+  x2?: number;
+  y2?: number;
+  color?: string;
+  pts?: [number, number][];
 }
 
 export function getAnnotations(sessionId: string): TeacherMark[] {

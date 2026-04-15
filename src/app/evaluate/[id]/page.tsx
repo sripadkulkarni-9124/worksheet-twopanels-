@@ -405,6 +405,31 @@ function drawMark(ctx: CanvasRenderingContext2D, mark: TeacherMark, t: ImgTransf
       ctx.fill();
       break;
     }
+    case 'quad': {
+      const pts = mark.pts;
+      if (!pts || pts.length < 4) {
+        // fallback to axis-aligned rect
+        const qColor = mark.color ?? '#9CA3AF';
+        ctx.strokeStyle = qColor;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, x2 - x, y2 - y);
+        ctx.fillStyle = qColor + '18';
+        ctx.fillRect(x, y, x2 - x, y2 - y);
+        break;
+      }
+      const qColor = mark.color ?? '#9CA3AF';
+      const canvasPts = pts.map(([fx, fy]) => [t.offsetX + fx * t.scaleX, t.offsetY + fy * t.scaleY]);
+      ctx.strokeStyle = qColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(canvasPts[0][0], canvasPts[0][1]);
+      for (let i = 1; i < 4; i++) ctx.lineTo(canvasPts[i][0], canvasPts[i][1]);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = qColor + '18';
+      ctx.fill();
+      break;
+    }
   }
   ctx.restore();
 }
@@ -525,21 +550,32 @@ function AnnotationCanvas({
     // LLM auto-marks (base layer) — highlight the active question's bbox
     let bboxIdx = 0;
     for (const m of autoMarks) {
-      if (m.type === 'bbox') {
+      if (m.type === 'bbox' || m.type === 'quad') {
         const isActive = activeQ !== undefined && bboxIdx === activeQ;
         if (isActive) {
           // Draw highlighted version
-          const x  = t.offsetX + m.x  * t.scaleX;
-          const y  = t.offsetY + m.y  * t.scaleY;
-          const x2 = t.offsetX + (m.x2 ?? m.x) * t.scaleX;
-          const y2 = t.offsetY + (m.y2 ?? m.y) * t.scaleY;
           const bColor = m.color ?? '#9CA3AF';
           ctx.save();
           ctx.strokeStyle = bColor;
           ctx.lineWidth = 4;
-          ctx.strokeRect(x, y, x2 - x, y2 - y);
-          ctx.fillStyle = bColor + '35';
-          ctx.fillRect(x, y, x2 - x, y2 - y);
+          if (m.type === 'quad' && m.pts && m.pts.length >= 4) {
+            const canvasPts = m.pts.map(([fx, fy]) => [t.offsetX + fx * t.scaleX, t.offsetY + fy * t.scaleY]);
+            ctx.beginPath();
+            ctx.moveTo(canvasPts[0][0], canvasPts[0][1]);
+            for (let i = 1; i < 4; i++) ctx.lineTo(canvasPts[i][0], canvasPts[i][1]);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.fillStyle = bColor + '35';
+            ctx.fill();
+          } else {
+            const x  = t.offsetX + m.x  * t.scaleX;
+            const y  = t.offsetY + m.y  * t.scaleY;
+            const x2 = t.offsetX + (m.x2 ?? m.x) * t.scaleX;
+            const y2 = t.offsetY + (m.y2 ?? m.y) * t.scaleY;
+            ctx.strokeRect(x, y, x2 - x, y2 - y);
+            ctx.fillStyle = bColor + '35';
+            ctx.fillRect(x, y, x2 - x, y2 - y);
+          }
           ctx.restore();
         } else {
           drawMark(ctx, { id: 'auto', ...m }, t);
@@ -553,17 +589,24 @@ function AnnotationCanvas({
     for (const m of markList) drawMark(ctx, m, t);
     // Feedback callouts
     if (showFeedback && questions?.length) {
-      const bboxes = autoMarks.filter(m => m.type === 'bbox');
+      const bboxes = autoMarks.filter(m => m.type === 'bbox' || m.type === 'quad');
       bboxes.forEach((bbox, i) => {
         const q = questions[i];
         if (!q) return;
+        // For quad marks, synthesize x/y/x2/y2 from pts centroid bounding box
+        let calloutBbox = bbox;
+        if (bbox.type === 'quad' && bbox.pts && bbox.pts.length >= 4) {
+          const xs = bbox.pts.map(p => p[0]);
+          const ys = bbox.pts.map(p => p[1]);
+          calloutBbox = { ...bbox, x: Math.min(...xs), y: Math.min(...ys), x2: Math.max(...xs), y2: Math.max(...ys) };
+        }
         const isCorrect = q.status === 'correct';
         const text = isCorrect
           ? (q.vedInsight || q.feedback || 'Great job!')
           : (q.feedback || q.vedInsight || 'Check the correct answer.');
         const icon = isCorrect ? '✓' : '✗';
         const iconColor = isCorrect ? '#4ADE80' : '#FCA5A5';
-        drawCallout(ctx, t, bbox, text, icon, iconColor);
+        drawCallout(ctx, t, calloutBbox, text, icon, iconColor);
       });
     }
     // Live drag preview
@@ -600,17 +643,32 @@ function AnnotationCanvas({
     return { imgX: x, imgY: y };
   };
 
-  // Click on bbox when not in toolbar mode — find which question was clicked
+  // Click on bbox/quad when not in toolbar mode — find which question was clicked
   const onBboxClick = useCallback((e: React.PointerEvent) => {
     if (!onQuestionClick) return;
     const pos = getImgPos(e);
-    const bboxes = autoMarks.filter(m => m.type === 'bbox');
+    const bboxes = autoMarks.filter(m => m.type === 'bbox' || m.type === 'quad');
     for (let i = 0; i < bboxes.length; i++) {
       const m = bboxes[i];
-      const x1 = m.x, y1 = m.y, x2 = m.x2 ?? m.x, y2 = m.y2 ?? m.y;
-      if (pos.imgX >= x1 && pos.imgX <= x2 && pos.imgY >= y1 && pos.imgY <= y2) {
-        onQuestionClick(i);
-        return;
+      if (m.type === 'quad' && m.pts && m.pts.length >= 4) {
+        // Point-in-polygon (ray casting)
+        const pts = m.pts;
+        let inside = false;
+        for (let j = 0, k = 3; j < 4; k = j++) {
+          const xi = pts[j][0], yi = pts[j][1];
+          const xk = pts[k][0], yk = pts[k][1];
+          if ((yi > pos.imgY) !== (yk > pos.imgY) &&
+              pos.imgX < ((xk - xi) * (pos.imgY - yi)) / (yk - yi) + xi) {
+            inside = !inside;
+          }
+        }
+        if (inside) { onQuestionClick(i); return; }
+      } else {
+        const x1 = m.x, y1 = m.y, x2 = m.x2 ?? m.x, y2 = m.y2 ?? m.y;
+        if (pos.imgX >= x1 && pos.imgX <= x2 && pos.imgY >= y1 && pos.imgY <= y2) {
+          onQuestionClick(i);
+          return;
+        }
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -752,8 +810,10 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
     setSession(s);
 
     // Fetch if no marks, old format (no bbox), or bbox count doesn't match questions (small bbox = answer-only old format)
-    const bboxCount = s.autoMarks?.filter(m => m.type === 'bbox').length ?? 0;
-    const needsAnnotate = !s.autoMarks || s.autoMarks.length === 0 || bboxCount !== s.result.questions.length;
+    const bboxCount = s.autoMarks?.filter(m => m.type === 'bbox' || m.type === 'quad').length ?? 0;
+    const hasQuad = s.autoMarks?.some(m => m.type === 'quad') ?? false;
+    // Re-annotate if: no marks, count mismatch, or old bbox-only format (no quad polygons yet)
+    const needsAnnotate = !s.autoMarks || s.autoMarks.length === 0 || bboxCount !== s.result.questions.length || !hasQuad;
     if (needsAnnotate) {
       const base64 = s.imageDataUrl.split(',')[1];
       const mimeType = s.imageDataUrl.split(';')[0].split(':')[1];
@@ -857,7 +917,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
   }[q.status];
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #7B2FF7 0%, #E8633B 100%)' }}>
+    <div className="h-screen overflow-hidden flex flex-col" style={{ background: 'linear-gradient(135deg, #7B2FF7 0%, #E8633B 100%)' }}>
       {/* Header */}
       <div className="px-4 py-3 flex items-center justify-between shrink-0">
         <button onClick={() => router.push('/')}
@@ -900,12 +960,12 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
       {/* Split screen */}
       <div className="flex-1 flex gap-3 px-3 pb-3 min-h-0">
         {/* Left: Worksheet image with annotation */}
-        <div className="w-[52%] bg-white rounded-3xl overflow-hidden flex flex-col shadow-xl">
-          <div className="flex-1 overflow-hidden relative" ref={imageContainerRef}>
+        <div className="w-[52%] bg-white rounded-3xl overflow-hidden flex flex-col shadow-xl min-h-0">
+          <div className="flex-1 relative min-h-0" ref={imageContainerRef}>
             <img
               src={imageDataUrl}
               alt="Worksheet"
-              className="w-full h-full object-contain"
+              className="absolute inset-0 w-full h-full object-contain"
               style={{ pointerEvents: 'none' }}
               onLoad={e => {
                 const img = e.currentTarget;
@@ -955,7 +1015,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
         </div>
 
         {/* Right: AI evaluation panel */}
-        <div className="flex-1 bg-white rounded-3xl flex flex-col overflow-hidden shadow-xl">
+        <div className="flex-1 bg-white rounded-3xl flex flex-col overflow-hidden shadow-xl min-h-0">
           {/* Q tabs */}
           <div className="px-4 pt-4 pb-3 border-b border-gray-100 shrink-0">
             <div className="flex items-center justify-between mb-2">
