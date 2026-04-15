@@ -9,49 +9,46 @@ const STATUS_COLOR: Record<string, string> = {
   unanswered: '#9CA3AF',
 };
 
-const ANNOTATE_PROMPT = (questions: EvaluatedQuestion[]) => `You are a teacher marking a student's worksheet image.
+const ANNOTATE_PROMPT = (questions: EvaluatedQuestion[]) => `You are analyzing a student's worksheet image to extract precise bounding box coordinates.
 
-Here are the evaluation results for each question:
-${questions.map(q => `Q${q.number}: "${q.questionText}" — Student wrote: "${q.studentAnswer ?? 'nothing'}" — Status: ${q.status} — Color: ${STATUS_COLOR[q.status]}`).join('\n')}
+TASK: For each question card below, find its printed border rectangle and output coordinates.
 
-For EACH question produce TWO marks:
+Questions to locate:
+${questions.map(q => `Q${q.number}: "${q.questionText.slice(0, 60)}" | status=${q.status} | color=${STATUS_COLOR[q.status]}`).join('\n')}
 
-1. A "bbox" mark — trace the DASHED/DOTTED printed border rectangle of the question card exactly:
+STEP 1 — LOCATE EACH QUESTION CARD:
+Look at the image carefully. Each question is inside a printed rectangle (may be dashed, dotted, or solid border).
+For EACH question card, mentally note:
+- Where does the LEFT edge of the card border sit? (as fraction of image width)
+- Where does the RIGHT edge of the card border sit? (as fraction of image width)
+- Where does the TOP edge of the card border sit? (as fraction of image height)
+- Where does the BOTTOM edge of the card border sit? (as fraction of image height)
 
-   HOW TO MEASURE (follow precisely):
-   - Each question is enclosed in a printed dashed or dotted rectangular border
-   - Visually trace that dashed border line with your eyes
-   - x  = the x-fraction of the LEFT side of that dashed border line
-   - y  = the y-fraction of the TOP side of that dashed border line
-   - x2 = the x-fraction of the RIGHT side of that dashed border line
-   - y2 = the y-fraction of the BOTTOM side of that dashed border line
-   - The bbox must EXACTLY follow the printed dashed border — not the image edge, not the page margin, not any outer container
-   - Each question card has its own independent dashed border — measure each one separately
-   - color = the status color listed above
+The card border is the INNER rectangle around just that question — NOT the outer page border, NOT the full image width.
+Most worksheets have left/right margins so cards do NOT start at 0.0 or end at 1.0.
 
-2. A correction mark placed just to the right of the student's written answer:
-   - "correct"           → {"type":"tick",  "x":…, "y":…}
-   - "incorrect"         → {"type":"cross", "x":…, "y":…}
-   - "partially_correct" → {"type":"circle","x":…,"y":…,"x2":…,"y2":…}
-   - "unanswered"        → {"type":"cross", "x":…, "y":…}
+STEP 2 — OUTPUT MARKS:
+For each question output exactly 2 marks:
+A) bbox mark with the card's border coordinates
+B) correction mark placed inside the card near the student's answer:
+   - correct → tick
+   - incorrect → cross
+   - partially_correct → circle (with x2,y2 around the answer area)
+   - unanswered → cross
 
-CRITICAL RULES:
-- Coordinates are fractions of the FULL image width/height (0.0 = left/top edge, 1.0 = right/bottom edge)
-- x and x2 MUST be the dashed border's own left/right edges — questions may not span the full image width
-- y2 MUST be the dashed border's bottom line — NOT the page bottom, NOT below the card
-- Do NOT use 0.0 or 1.0 unless the dashed border literally touches that image edge
-- If questions have different widths or positions, reflect that exactly — do not normalize them to the same x/x2
-- Every question needs exactly one bbox + one correction mark
-
-Return ONLY a valid JSON array, no markdown, no explanation:
+OUTPUT FORMAT — return ONLY a JSON array, zero markdown, zero explanation:
 [
-  {"type":"bbox",  "x":0.04,"y":0.08,"x2":0.94,"y2":0.28,"color":"#16A34A"},
-  {"type":"tick",  "x":0.85,"y":0.22},
-  {"type":"bbox",  "x":0.04,"y":0.30,"x2":0.94,"y2":0.52,"color":"#DC2626"},
-  {"type":"cross", "x":0.85,"y":0.48},
-  {"type":"bbox",  "x":0.04,"y":0.54,"x2":0.94,"y2":0.74,"color":"#F59E0B"},
-  {"type":"circle","x":0.55,"y":0.66,"x2":0.85,"y2":0.72}
-]`;
+  {"type":"bbox","x":<left_edge>,"y":<top_edge>,"x2":<right_edge>,"y2":<bottom_edge>,"color":"<status_color>"},
+  {"type":"tick","x":<x>,"y":<y>},
+  ... repeat for each question
+]
+
+VALIDATION before outputting:
+- x must be > 0.01 (card does not start at image left)
+- x2 must be < 0.99 (card does not end at image right)
+- x2 - x should be between 0.5 and 0.95 (typical card width)
+- y2 - y should be > 0.05 (card has real height)
+- Each question's y range must NOT overlap with another question's y range`;
 
 export async function POST(request: NextRequest) {
   try {
@@ -70,7 +67,22 @@ export async function POST(request: NextRequest) {
 
     const text = result.response.text();
     const clean = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
-    const marks = JSON.parse(clean);
+    const rawMarks = JSON.parse(clean);
+    // Log exact coordinates Gemini returned for debugging
+    console.log('[ANNOTATE] raw marks:', JSON.stringify(rawMarks, null, 2));
+
+    // Safety net: if Gemini returns bbox touching image edges, shrink inward
+    const marks = rawMarks.map((m: { type: string; x: number; y: number; x2?: number; y2?: number; color?: string }) => {
+      if (m.type !== 'bbox') return m;
+      const fixed = { ...m };
+      // If x is suspiciously close to 0, likely an error — nudge in
+      if (fixed.x !== undefined && fixed.x < 0.02) fixed.x = 0.03;
+      if (fixed.x2 !== undefined && fixed.x2 > 0.98) fixed.x2 = 0.97;
+      if (fixed.y !== undefined && fixed.y < 0.01) fixed.y = 0.01;
+      if (fixed.y2 !== undefined && fixed.y2 > 0.99) fixed.y2 = 0.99;
+      console.log(`[ANNOTATE] bbox Q: x=${fixed.x} x2=${fixed.x2} width=${((fixed.x2 ?? 0) - fixed.x).toFixed(3)}`);
+      return fixed;
+    });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const usage = result.response.usageMetadata as any;
