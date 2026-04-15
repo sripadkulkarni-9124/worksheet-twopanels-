@@ -37,10 +37,17 @@ Return ONLY this JSON structure, no markdown:
 }
 
 DEFINITIONS:
-- page: The 4 corners of the physical worksheet paper as fractions of the IMAGE (0.0–1.0). If photo is angled these will NOT form a perfect rectangle. Order: tl=top-left, tr=top-right, br=bottom-right, bl=bottom-left.
-- u1/v1/u2/v2: Position of the dashed-border card as fractions of the PAGE dimensions. u=0 means left edge of page, u=1 means right edge. v=0 means top of page, v=1 means bottom.
-- mark.u/v: Position of the correction symbol as page fractions.
-- mark.type: "tick" for correct, "cross" for incorrect/unanswered, "circle" for partially_correct.`;
+- page: The 4 corners of the PHYSICAL PAPER SHEET in the photo, as fractions of image width/height (0.0–1.0).
+  If camera is angled, the paper appears as a trapezoid/parallelogram — corners will NOT have equal Y values.
+  Example angled page: [[0.02,0.01],[0.97,0.04],[0.95,0.99],[0.03,0.97]]
+  If paper fills entire image: [[0,0],[1,0],[1,1],[0,1]]
+- u1/v1/u2/v2: Card position as fraction of PAGE (not image). u=horizontal (0=left, 1=right), v=vertical (0=top, 1=bottom).
+  Cards are cut from the page consistently — if page is 1.0 wide, a full-width card has u1≈0.01, u2≈0.99.
+- mark.u/v: Correction symbol position as page fractions.
+- mark.type: "tick"=correct, "cross"=incorrect/unanswered, "circle"=partially_correct.
+
+CRITICAL: The "page" field is the most important part. Look carefully at the paper edges in the photo.
+If the worksheet is photographed at an angle, the top edge of the paper will be at a different Y than the bottom — capture this.`;
 
 /** Bilinear interpolation: maps (u,v) within page quad → image [x,y] fractions */
 function bilinear(page: [number, number][], u: number, v: number): [number, number] {
@@ -74,9 +81,9 @@ export async function POST(request: NextRequest) {
     console.log('[ANNOTATE] raw response:', JSON.stringify(raw, null, 2));
 
     // Fallback page = full image corners (axis-aligned rects if page not detected)
-    const page: [number,number][] = (Array.isArray(raw.page) && raw.page.length === 4)
-      ? raw.page
-      : [[0,0],[1,0],[1,1],[0,1]];
+    const hasRealPage = Array.isArray(raw.page) && raw.page.length === 4;
+    const page: [number,number][] = hasRealPage ? (raw.page as [number,number][]) : [[0,0],[1,0],[1,1],[0,1]];
+    console.log(`[ANNOTATE] page corners (${hasRealPage ? 'DETECTED' : 'FALLBACK'}):`, JSON.stringify(page));
 
     const marks: AutoMark[] = [];
 
