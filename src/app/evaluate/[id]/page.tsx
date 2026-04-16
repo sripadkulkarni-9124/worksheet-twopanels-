@@ -795,6 +795,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
   const [session, setSession] = useState<EvaluationSession | null>(null);
   const [activeQ, setActiveQ] = useState(0);
   const [showChat, setShowChat] = useState(false);
+  const [showVedChat, setShowVedChat] = useState(false);
   const [annotating, setAnnotating] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [reattemptQ, setReattemptQ] = useState<EvaluatedQuestion | null>(null);
@@ -917,145 +918,134 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
   }[q.status];
 
   return (
-    <div className="h-screen overflow-hidden flex flex-col" style={{ background: 'linear-gradient(135deg, #7B2FF7 0%, #E8633B 100%)' }}>
+    <div className="h-screen overflow-hidden flex flex-col" style={{ background: '#111827' }}>
       {/* Header */}
       <div className="px-4 py-3 flex items-center justify-between shrink-0">
         <button onClick={() => router.push('/')}
           className="flex items-center gap-1.5 text-white/90 hover:text-white font-semibold text-sm">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12,8 8,12 12,16" />
-            <line x1="16" y1="12" x2="8" y2="12" />
+            <polyline points="15,18 9,12 15,6" />
           </svg>
-          Back
         </button>
 
         <div className="text-center text-white">
           <div className="font-bold text-sm">{result.worksheetTitle}</div>
-          <div className="text-xs text-white/70">{result.chapter} • {result.topic}</div>
+          <div className="text-xs text-white/60">{result.subject} • {result.chapter}</div>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="text-white text-xs font-bold bg-white/20 backdrop-blur px-3 py-1.5 rounded-full">
-            {correctCount}/{questions.length} ({accuracy}%)
-          </div>
-          {/* Scan Again */}
-          <button
-            onClick={() => setShowScanAgain(true)}
-            className="flex items-center gap-1.5 text-white/90 hover:text-white text-xs font-semibold bg-white/20 px-3 py-1.5 rounded-full"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <button onClick={() => setShowScanAgain(true)}
+            className="text-white/70 hover:text-white p-1">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
               <circle cx="12" cy="13" r="4" />
             </svg>
-            Scan Again
           </button>
           <button onClick={() => router.push('/')}
-            className="text-white/90 hover:text-white font-semibold text-sm bg-white/20 px-3 py-1.5 rounded-full">
+            className="text-white/70 hover:text-white text-xs font-semibold bg-white/10 px-3 py-1.5 rounded-full">
             Done
           </button>
         </div>
       </div>
 
-      {/* Split screen */}
-      <div className="flex-1 flex gap-3 px-3 pb-3 min-h-0">
-        {/* Left: Worksheet image with annotation */}
-        <div className="w-[52%] bg-white rounded-3xl overflow-hidden flex flex-col shadow-xl min-h-0">
-          <div className="flex-1 relative min-h-0" ref={imageContainerRef}>
-            <img
-              src={imageDataUrl}
-              alt="Worksheet"
-              className="absolute inset-0 w-full h-full object-contain"
-              style={{ pointerEvents: 'none' }}
-              onLoad={e => {
-                const img = e.currentTarget;
-                setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
-              }}
-            />
-            {/* Always show canvas — auto-marks visible by default, toolbar shown when annotating */}
-            <AnnotationCanvas
-              sessionId={id}
-              containerRef={imageContainerRef}
-              autoMarks={session.autoMarks ?? []}
-              showToolbar={annotating}
-              naturalW={imgNatural.w}
-              naturalH={imgNatural.h}
-              activeQ={activeQ}
-              onQuestionClick={i => { setActiveQ(i); setShowChat(false); }}
-              showFeedback={showFeedback}
-              questions={questions}
-            />
-          </div>
+      {/* Sub-header: label + Show Feedback */}
+      <div className="px-4 pb-2 flex items-center justify-between shrink-0">
+        <span className="text-white/50 text-xs font-bold tracking-widest uppercase">Annotated Worksheet</span>
+        <button
+          onClick={() => setShowFeedback(f => !f)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
+          style={showFeedback
+            ? { background: '#F59E0B', color: 'white', borderColor: '#F59E0B' }
+            : { background: 'transparent', color: 'white', borderColor: 'rgba(255,255,255,0.3)' }}
+        >
+          💬 {showFeedback ? 'Hide Feedback' : 'Show Feedback'}
+        </button>
+      </div>
 
-          {/* Image toolbar */}
-          <div className="py-2.5 px-4 flex items-center justify-between border-t border-gray-100 shrink-0">
-            <div className="flex items-center gap-2">
-              <button className="text-gray-400 hover:text-gray-600 p-1">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="15,18 9,12 15,6" />
-                </svg>
-              </button>
-              <span className="text-xs text-gray-500 font-medium">Page 1</span>
-              <button className="text-gray-400 hover:text-gray-600 p-1">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="9,18 15,12 9,6" />
-                </svg>
-              </button>
-            </div>
-            <button
-              onClick={() => setShowFeedback(f => !f)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
-              style={showFeedback
-                ? { background: '#F59E0B', color: 'white' }
-                : { background: '#f3f4f6', color: '#374151' }}
-            >
-              💬 {showFeedback ? 'Hide Feedback' : 'Show Feedback'}
-            </button>
+      {/* Worksheet image — fills remaining height above tabs */}
+      <div className="flex-1 min-h-0 px-3 pb-1 flex flex-col relative">
+        {/* Score overlay — top-right, outside the canvas coord system */}
+        <div className="absolute top-3 right-5 z-20 bg-white rounded-2xl px-4 py-2.5 shadow-xl min-w-[110px]">
+          <div className="font-bold text-gray-900 text-sm">Score: {correctCount}/{questions.length}</div>
+          <div className="font-bold text-sm mt-0.5" style={{ color: accuracy >= 70 ? '#22C55E' : accuracy >= 40 ? '#F59E0B' : '#EF4444' }}>
+            {accuracy}%
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1.5">
+            <div className="h-1.5 rounded-full transition-all"
+              style={{ width: `${accuracy}%`, background: accuracy >= 70 ? '#22C55E' : accuracy >= 40 ? '#F59E0B' : '#EF4444' }} />
           </div>
         </div>
 
-        {/* Right: AI evaluation panel */}
-        <div className="flex-1 bg-white rounded-3xl flex flex-col overflow-hidden shadow-xl min-h-0">
-          {/* Q tabs */}
-          <div className="px-4 pt-4 pb-3 border-b border-gray-100 shrink-0">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-bold text-gray-900 text-sm">Questions</h3>
-              <span className="text-xs text-gray-400">{correctCount} of {questions.length} correct</span>
+        {/* Inner container — canvas and image share the same coordinate space */}
+        <div className="flex-1 relative min-h-0" ref={imageContainerRef}>
+          <img
+            src={imageDataUrl}
+            alt="Worksheet"
+            className="absolute inset-0 w-full h-full object-contain"
+            style={{ pointerEvents: 'none' }}
+            onLoad={e => {
+              const img = e.currentTarget;
+              setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
+            }}
+          />
+          <AnnotationCanvas
+            sessionId={id}
+            containerRef={imageContainerRef}
+            autoMarks={session.autoMarks ?? []}
+            showToolbar={annotating}
+            naturalW={imgNatural.w}
+            naturalH={imgNatural.h}
+            activeQ={activeQ}
+            onQuestionClick={i => { setActiveQ(i); setShowChat(false); }}
+            showFeedback={showFeedback}
+            questions={questions}
+          />
+        </div>
+      </div>
+
+      {/* Q tabs — bottom bar */}
+      <div className="px-4 py-3 flex items-center justify-center gap-2.5 shrink-0">
+        {questions.map((qq, i) => {
+          const dotColor = {
+            correct: '#22C55E', incorrect: '#EF4444',
+            partially_correct: '#F59E0B', unanswered: '#9CA3AF',
+          }[qq.status];
+          return (
+            <button
+              key={i}
+              onClick={() => { setActiveQ(i); setShowChat(true); }}
+              className="w-10 h-10 rounded-full text-sm font-bold transition-all relative"
+              style={i === activeQ
+                ? { background: '#F59E0B', color: 'white' }
+                : { background: 'rgba(255,255,255,0.15)', color: 'white' }}
+            >
+              {qq.number}
+              <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-gray-900"
+                style={{ backgroundColor: dotColor }} />
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Q detail bottom drawer */}
+      {showChat && q && (
+        <div className="absolute inset-x-0 bottom-0 z-30 bg-white rounded-t-3xl shadow-2xl flex flex-col"
+          style={{ maxHeight: '65vh' }}>
+          {/* Drawer handle + close */}
+          <div className="flex items-center justify-between px-5 pt-4 pb-2 shrink-0">
+            <div className="flex items-center gap-2">
+              <StatusIcon status={q.status} />
+              <span className="font-bold text-gray-900 text-sm">Question {q.number}</span>
             </div>
-            <div className="flex gap-1.5 flex-wrap">
-              {questions.map((qq, i) => {
-                const dotColor = {
-                  correct: '#22C55E', incorrect: '#EF4444',
-                  partially_correct: '#F59E0B', unanswered: '#9CA3AF',
-                }[qq.status];
-                return (
-                  <button
-                    key={i}
-                    onClick={() => { setActiveQ(i); setShowChat(true); }}
-                    className="w-9 h-9 rounded-full text-xs font-bold transition-all relative"
-                    style={i === activeQ
-                      ? { background: 'linear-gradient(135deg, #7B2FF7, #E8633B)', color: 'white' }
-                      : { background: '#f3f4f6', color: '#374151' }}
-                  >
-                    Q{qq.number}
-                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white"
-                      style={{ backgroundColor: dotColor }} />
-                  </button>
-                );
-              })}
-            </div>
+            <button onClick={() => setShowChat(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
           </div>
 
-          {/* Question content */}
-          <div className="flex-1 overflow-y-auto p-4">
-            {/* Question text */}
-            <div className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1">Question {q.number}</div>
-            <p className="text-gray-800 text-sm font-medium mb-3 leading-relaxed">{q.questionText}</p>
+          <div className="flex-1 overflow-y-auto px-5 pb-4">
+            <p className="text-gray-700 text-sm mb-3 leading-relaxed">{q.questionText}</p>
 
             {/* Status banner */}
             <div className="rounded-2xl p-3 mb-3 flex items-center gap-3"
               style={{ backgroundColor: `${qStatusColor}15`, border: `1px solid ${qStatusColor}30` }}>
-              <StatusIcon status={q.status} />
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-sm text-gray-900">{statusMsg}</div>
                 {q.studentAnswer && (
@@ -1088,36 +1078,31 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
               <p className="text-gray-600 text-sm">{q.feedback}</p>
             </div>
 
-            {/* Steps */}
             <StepByStep steps={q.steps} />
           </div>
 
           {/* Action buttons */}
-          <div className="px-4 py-3 border-t border-gray-100 flex gap-2 shrink-0">
-            {/* Reattempt — show for non-correct */}
+          <div className="px-5 py-3 border-t border-gray-100 flex gap-2 shrink-0">
             {q.status !== 'correct' && (
-              <button
-                onClick={() => setReattemptQ(q)}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full text-sm font-semibold border-2 transition-all"
-                style={{ borderColor: '#7B2FF7', color: '#7B2FF7' }}
-              >
+              <button onClick={() => setReattemptQ(q)}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full text-sm font-semibold border-2"
+                style={{ borderColor: '#7B2FF7', color: '#7B2FF7' }}>
                 🔄 Reattempt
               </button>
             )}
-            {/* Ask VED */}
             <button
-              onClick={() => setShowChat(true)}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full text-white font-semibold shadow-md hover:shadow-lg transition-all text-sm"
-              style={{ background: 'linear-gradient(135deg, #7B2FF7, #E8633B)', boxShadow: '0 4px 15px rgba(123,47,247,0.3)' }}
-            >
+              onClick={() => { setShowChat(false); setShowVedChat(true); }}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full text-white font-semibold text-sm"
+              style={{ background: 'linear-gradient(135deg, #7B2FF7, #E8633B)' }}>
               🤖 Ask VED
             </button>
           </div>
         </div>
-      </div>
+      )}
+
 
       {/* Overlays */}
-      {showChat && q && <AskVedChat key={q.number} sessionId={id} question={q} onClose={() => setShowChat(false)} autoTrigger />}
+      {showVedChat && q && <AskVedChat key={q.number} sessionId={id} question={q} onClose={() => setShowVedChat(false)} autoTrigger />}
       {reattemptQ && (
         <ReattemptModal question={reattemptQ} onClose={() => setReattemptQ(null)} onSuccess={handleReattemptSuccess} />
       )}
