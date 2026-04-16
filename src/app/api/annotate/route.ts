@@ -105,7 +105,19 @@ export async function POST(request: NextRequest) {
 
       console.log(`[ANNOTATE] Q${q}: tl=${pts[0].map(v=>v.toFixed(3))} tr=${pts[1].map(v=>v.toFixed(3))} w=${(x2-x).toFixed(3)} h=${(y2-y).toFixed(3)}`);
 
-      marks.push({ type: 'quad', pts, x, y, x2, y2, color: color ?? STATUS_COLOR['unanswered'] });
+      // Find question status for badge
+      const qData = questions.find((qq: EvaluatedQuestion) => qq.number === q);
+      const status = qData?.status ?? 'unanswered';
+      const marksPossible = 1; // default; could be extracted from question text later
+      const marksAwarded = status === 'correct' ? 1 : status === 'partially_correct' ? Math.round(marksPossible * 0.5) : 0;
+      const qColor = color ?? STATUS_COLOR[status];
+
+      marks.push({ type: 'quad', pts, x, y, x2, y2, color: qColor });
+
+      // Badge: placed at right edge of quad (x2) + 3%, vertically centered
+      const badgeX = x2 + 0.03;
+      const badgeY = (y + y2) / 2;
+      marks.push({ type: 'badge', x: badgeX, y: badgeY, status, marksAwarded, marksPossible } as AutoMark);
 
       if (mark) {
         const [mx, my] = bilinear(page, mark.u, mark.v);

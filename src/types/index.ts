@@ -23,7 +23,7 @@ export interface EvaluationResult {
 }
 
 export interface AutoMark {
-  type: 'tick' | 'cross' | 'circle' | 'underline' | 'arrow' | 'bbox' | 'quad';
+  type: 'tick' | 'cross' | 'circle' | 'underline' | 'arrow' | 'bbox' | 'quad' | 'badge';
   x: number;
   y: number;
   x2?: number;
@@ -31,6 +31,10 @@ export interface AutoMark {
   color?: string;
   // quad: 4 corner points [[tlX,tlY],[trX,trY],[brX,brY],[blX,blY]] as image fractions
   pts?: [number, number][];
+  // badge fields
+  status?: 'correct' | 'incorrect' | 'partially_correct' | 'unanswered';
+  marksAwarded?: number;
+  marksPossible?: number;
 }
 
 export interface EvaluationSession {

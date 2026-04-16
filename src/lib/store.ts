@@ -68,7 +68,7 @@ export function updateQuestion(sessionId: string, questionIndex: number, updates
 
 const ANNOTATIONS_KEY = 'ved-annotations';
 
-export type MarkType = 'tick' | 'cross' | 'circle' | 'underline' | 'arrow' | 'bbox' | 'quad';
+export type MarkType = 'tick' | 'cross' | 'circle' | 'underline' | 'arrow' | 'bbox' | 'quad' | 'badge';
 
 export interface TeacherMark {
   id: string;
@@ -79,6 +79,9 @@ export interface TeacherMark {
   y2?: number;
   color?: string;
   pts?: [number, number][];
+  status?: 'correct' | 'incorrect' | 'partially_correct' | 'unanswered';
+  marksAwarded?: number;
+  marksPossible?: number;
 }
 
 export function getAnnotations(sessionId: string): TeacherMark[] {

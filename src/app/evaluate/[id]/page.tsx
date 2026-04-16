@@ -405,6 +405,17 @@ function drawMark(ctx: CanvasRenderingContext2D, mark: TeacherMark, t: ImgTransf
       ctx.fill();
       break;
     }
+    case 'badge': {
+      const badgeR = Math.max(14, Math.max(t.scaleX, t.scaleY) * 0.026);
+      drawBadge(
+        ctx, x, y,
+        mark.status ?? 'unanswered',
+        mark.marksAwarded ?? 0,
+        mark.marksPossible ?? 1,
+        badgeR,
+      );
+      break;
+    }
     case 'quad': {
       const pts = mark.pts;
       if (!pts || pts.length < 4) {
@@ -431,6 +442,62 @@ function drawMark(ctx: CanvasRenderingContext2D, mark: TeacherMark, t: ImgTransf
       break;
     }
   }
+  ctx.restore();
+}
+
+// ─── Badge drawing helper ────────────────────────────────────────────────────
+function drawBadge(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  status: string,
+  marksAwarded: number,
+  marksPossible: number,
+  r: number,
+) {
+  const colors: Record<string, string> = {
+    correct: '#16A34A',
+    incorrect: '#DC2626',
+    partially_correct: '#F59E0B',
+    unanswered: '#6B7280',
+  };
+  const symbols: Record<string, string> = {
+    correct: '✓',
+    incorrect: '✗',
+    partially_correct: '~',
+    unanswered: '—',
+  };
+  const color = colors[status] ?? '#6B7280';
+  const symbol = symbols[status] ?? '—';
+
+  ctx.save();
+
+  // Shadow
+  ctx.shadowColor = 'rgba(0,0,0,0.25)';
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetY = 2;
+
+  // Circle fill
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+
+  // Symbol
+  const symSize = Math.max(r * 0.85, 9);
+  ctx.font = `bold ${symSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.fillStyle = 'white';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(symbol, cx, cy);
+
+  // Score text below badge
+  const scoreSize = Math.max(r * 0.6, 7);
+  ctx.font = `600 ${scoreSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.fillStyle = color;
+  ctx.fillText(`${marksAwarded}/${marksPossible}`, cx, cy + r + scoreSize * 0.9);
+
   ctx.restore();
 }
 
