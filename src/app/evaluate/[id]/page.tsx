@@ -1029,10 +1029,34 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
         </button>
       </div>
 
-      {/* Worksheet image — fills remaining height above tabs */}
-      <div className="flex-1 min-h-0 px-3 pb-1 flex flex-col relative">
-        {/* Score overlay — top-right, outside the canvas coord system */}
-        <div className="absolute top-3 right-5 z-20 bg-white rounded-2xl px-4 py-2.5 shadow-xl min-w-[110px]">
+      {/* Worksheet image — fills all remaining space, never scrolls */}
+      <div className="flex-1 min-h-0 relative overflow-hidden" ref={imageContainerRef}>
+        {/* Image — object-contain ensures full worksheet visible, no crop */}
+        <img
+          src={imageDataUrl}
+          alt="Worksheet"
+          className="absolute inset-0 w-full h-full object-contain"
+          style={{ pointerEvents: 'none' }}
+          onLoad={e => {
+            const img = e.currentTarget;
+            setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
+          }}
+        />
+        <AnnotationCanvas
+          sessionId={id}
+          containerRef={imageContainerRef}
+          autoMarks={session.autoMarks ?? []}
+          showToolbar={annotating}
+          naturalW={imgNatural.w}
+          naturalH={imgNatural.h}
+          activeQ={activeQ}
+          onQuestionClick={i => { setActiveQ(i); setShowChat(false); }}
+          showFeedback={showFeedback}
+          questions={questions}
+        />
+
+        {/* Score overlay — top-right corner of image area */}
+        <div className="absolute top-3 right-3 z-20 bg-white rounded-2xl px-4 py-2.5 shadow-xl min-w-[110px]">
           <div className="font-bold text-gray-900 text-sm">Score: {correctCount}/{questions.length}</div>
           <div className="font-bold text-sm mt-0.5" style={{ color: accuracy >= 70 ? '#22C55E' : accuracy >= 40 ? '#F59E0B' : '#EF4444' }}>
             {accuracy}%
@@ -1042,36 +1066,10 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
               style={{ width: `${accuracy}%`, background: accuracy >= 70 ? '#22C55E' : accuracy >= 40 ? '#F59E0B' : '#EF4444' }} />
           </div>
         </div>
-
-        {/* Inner container — canvas and image share the same coordinate space */}
-        <div className="flex-1 relative min-h-0" ref={imageContainerRef}>
-          <img
-            src={imageDataUrl}
-            alt="Worksheet"
-            className="absolute inset-0 w-full h-full object-contain"
-            style={{ pointerEvents: 'none' }}
-            onLoad={e => {
-              const img = e.currentTarget;
-              setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
-            }}
-          />
-          <AnnotationCanvas
-            sessionId={id}
-            containerRef={imageContainerRef}
-            autoMarks={session.autoMarks ?? []}
-            showToolbar={annotating}
-            naturalW={imgNatural.w}
-            naturalH={imgNatural.h}
-            activeQ={activeQ}
-            onQuestionClick={i => { setActiveQ(i); setShowChat(false); }}
-            showFeedback={showFeedback}
-            questions={questions}
-          />
-        </div>
       </div>
 
-      {/* Q tabs — bottom bar */}
-      <div className="px-4 py-3 flex items-center justify-center gap-2.5 shrink-0">
+      {/* Q tabs — bottom bar, fixed height, never pushed off screen */}
+      <div className="px-4 py-3 flex items-center justify-center gap-2.5 shrink-0" style={{ background: '#111827' }}>
         {questions.map((qq, i) => {
           const dotColor = {
             correct: '#22C55E', incorrect: '#EF4444',
