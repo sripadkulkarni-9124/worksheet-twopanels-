@@ -1015,129 +1015,117 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
         </div>
       </div>
 
-      {/* Sub-header: label + Show Feedback */}
-      <div className="px-4 pb-2 flex items-center justify-between shrink-0">
-        <span className="text-white/50 text-xs font-bold tracking-widest uppercase">Annotated Worksheet</span>
-        <button
-          onClick={() => setShowFeedback(f => !f)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
-          style={showFeedback
-            ? { background: '#F59E0B', color: 'white', borderColor: '#F59E0B' }
-            : { background: 'transparent', color: 'white', borderColor: 'rgba(255,255,255,0.3)' }}
-        >
-          💬 {showFeedback ? 'Hide Feedback' : 'Show Feedback'}
-        </button>
-      </div>
+      {/* Split panel — left image, right Q detail */}
+      <div className="flex-1 flex gap-3 px-3 pb-3 min-h-0">
 
-      {/* Worksheet image — fills all remaining space, never scrolls */}
-      <div className="flex-1 min-h-0 relative overflow-hidden" ref={imageContainerRef}>
-        {/* Image — object-contain ensures full worksheet visible, no crop */}
-        <img
-          src={imageDataUrl}
-          alt="Worksheet"
-          className="absolute inset-0 w-full h-full object-contain"
-          style={{ pointerEvents: 'none' }}
-          onLoad={e => {
-            const img = e.currentTarget;
-            setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
-          }}
-        />
-        <AnnotationCanvas
-          sessionId={id}
-          containerRef={imageContainerRef}
-          autoMarks={session.autoMarks ?? []}
-          showToolbar={annotating}
-          naturalW={imgNatural.w}
-          naturalH={imgNatural.h}
-          activeQ={activeQ}
-          onQuestionClick={i => { setActiveQ(i); setShowChat(false); }}
-          showFeedback={showFeedback}
-          questions={questions}
-        />
-
-        {/* Score overlay — top-right corner of image area */}
-        <div className="absolute top-3 right-3 z-20 bg-white rounded-2xl px-4 py-2.5 shadow-xl min-w-[110px]">
-          <div className="font-bold text-gray-900 text-sm">Score: {correctCount}/{questions.length}</div>
-          <div className="font-bold text-sm mt-0.5" style={{ color: accuracy >= 70 ? '#22C55E' : accuracy >= 40 ? '#F59E0B' : '#EF4444' }}>
-            {accuracy}%
+        {/* LEFT: annotated worksheet image */}
+        <div className="w-[52%] flex flex-col min-h-0 rounded-3xl overflow-hidden bg-black shadow-xl">
+          {/* Label + feedback toggle */}
+          <div className="px-3 py-2 flex items-center justify-between shrink-0">
+            <span className="text-white/50 text-xs font-bold tracking-widest uppercase">Annotated Worksheet</span>
+            <button
+              onClick={() => setShowFeedback(f => !f)}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all"
+              style={showFeedback
+                ? { background: '#F59E0B', color: 'white', borderColor: '#F59E0B' }
+                : { background: 'transparent', color: 'white', borderColor: 'rgba(255,255,255,0.3)' }}
+            >
+              💬 {showFeedback ? 'Hide' : 'Feedback'}
+            </button>
           </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1.5">
-            <div className="h-1.5 rounded-full transition-all"
-              style={{ width: `${accuracy}%`, background: accuracy >= 70 ? '#22C55E' : accuracy >= 40 ? '#F59E0B' : '#EF4444' }} />
+
+          {/* Image container — takes all remaining height, image fits via object-contain */}
+          <div className="flex-1 relative min-h-0" ref={imageContainerRef}>
+            <img
+              src={imageDataUrl}
+              alt="Worksheet"
+              className="absolute inset-0 w-full h-full object-contain"
+              style={{ pointerEvents: 'none' }}
+              onLoad={e => {
+                const img = e.currentTarget;
+                setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
+              }}
+            />
+            <AnnotationCanvas
+              sessionId={id}
+              containerRef={imageContainerRef}
+              autoMarks={session.autoMarks ?? []}
+              showToolbar={annotating}
+              naturalW={imgNatural.w}
+              naturalH={imgNatural.h}
+              activeQ={activeQ}
+              onQuestionClick={i => { setActiveQ(i); }}
+              showFeedback={showFeedback}
+              questions={questions}
+            />
           </div>
         </div>
-      </div>
 
-      {/* Q tabs — bottom bar, fixed height, never pushed off screen */}
-      <div className="px-4 py-3 flex items-center justify-center gap-2.5 shrink-0" style={{ background: '#111827' }}>
-        {questions.map((qq, i) => {
-          const dotColor = {
-            correct: '#22C55E', incorrect: '#EF4444',
-            partially_correct: '#F59E0B', unanswered: '#9CA3AF',
-          }[qq.status];
-          return (
-            <button
-              key={i}
-              onClick={() => { setActiveQ(i); setShowChat(true); }}
-              className="w-10 h-10 rounded-full text-sm font-bold transition-all relative"
-              style={i === activeQ
-                ? { background: '#F59E0B', color: 'white' }
-                : { background: 'rgba(255,255,255,0.15)', color: 'white' }}
-            >
-              {qq.number}
-              <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-gray-900"
-                style={{ backgroundColor: dotColor }} />
-            </button>
-          );
-        })}
-      </div>
+        {/* RIGHT: Q tabs + detail */}
+        <div className="flex-1 flex flex-col min-h-0 bg-white rounded-3xl shadow-xl overflow-hidden">
+          {/* Score + Q tabs */}
+          <div className="px-4 pt-4 pb-3 border-b border-gray-100 shrink-0">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="font-bold text-gray-900 text-sm">Score: {correctCount}/{questions.length}</div>
+                <div className="text-xs text-gray-400">{accuracy}% accuracy</div>
+              </div>
+              <div className="w-20">
+                <div className="w-full bg-gray-100 rounded-full h-2">
+                  <div className="h-2 rounded-full transition-all"
+                    style={{ width: `${accuracy}%`, background: accuracy >= 70 ? '#22C55E' : accuracy >= 40 ? '#F59E0B' : '#EF4444' }} />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              {questions.map((qq, i) => {
+                const dotColor = { correct: '#22C55E', incorrect: '#EF4444', partially_correct: '#F59E0B', unanswered: '#9CA3AF' }[qq.status];
+                return (
+                  <button key={i} onClick={() => setActiveQ(i)}
+                    className="w-9 h-9 rounded-full text-xs font-bold transition-all relative"
+                    style={i === activeQ
+                      ? { background: 'linear-gradient(135deg,#7B2FF7,#E8633B)', color: 'white' }
+                      : { background: '#f3f4f6', color: '#374151' }}>
+                    {qq.number}
+                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white"
+                      style={{ backgroundColor: dotColor }} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-      {/* Q detail bottom drawer */}
-      {showChat && q && (
-        <div className="absolute inset-x-0 bottom-0 z-30 bg-white rounded-t-3xl shadow-2xl flex flex-col"
-          style={{ maxHeight: '65vh' }}>
-          {/* Drawer handle + close */}
-          <div className="flex items-center justify-between px-5 pt-4 pb-2 shrink-0">
-            <div className="flex items-center gap-2">
+          {/* Q detail — scrollable */}
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex items-center gap-2 mb-2">
               <StatusIcon status={q.status} />
               <span className="font-bold text-gray-900 text-sm">Question {q.number}</span>
             </div>
-            <button onClick={() => setShowChat(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-5 pb-4">
             <p className="text-gray-700 text-sm mb-3 leading-relaxed">{q.questionText}</p>
 
-            {/* Status banner */}
             <div className="rounded-2xl p-3 mb-3 flex items-center gap-3"
               style={{ backgroundColor: `${qStatusColor}15`, border: `1px solid ${qStatusColor}30` }}>
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-sm text-gray-900">{statusMsg}</div>
                 {q.studentAnswer && (
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    Your answer: <span className="font-medium text-gray-700">{q.studentAnswer}</span>
-                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">Your answer: <span className="font-medium text-gray-700">{q.studentAnswer}</span></div>
                 )}
               </div>
             </div>
 
-            {/* Correct answer */}
             <div className="rounded-2xl p-3 mb-3 bg-green-50 border border-green-100">
               <div className="text-xs font-semibold text-green-700 mb-1">✅ Correct Answer</div>
               <div className="font-bold text-gray-900 text-sm">{q.correctAnswer}</div>
             </div>
 
-            {/* VED Insight */}
             <div className="rounded-2xl p-3 mb-3"
-              style={{ background: 'linear-gradient(180deg, #FFF0EB 0%, #FDDDE6 100%)', border: '1px solid rgba(232,99,59,0.25)' }}>
+              style={{ background: 'linear-gradient(180deg,#FFF0EB,#FDDDE6)', border: '1px solid rgba(232,99,59,0.25)' }}>
               <div className="flex items-center gap-1.5 mb-1">
-                <span>🧠</span>
-                <span className="font-bold text-xs" style={{ color: '#E8633B' }}>VED Insight</span>
+                <span>🧠</span><span className="font-bold text-xs" style={{ color: '#E8633B' }}>VED Insight</span>
               </div>
               <p className="text-gray-700 text-sm italic">"{q.vedInsight}"</p>
             </div>
 
-            {/* Feedback */}
             <div className="rounded-2xl p-3 mb-3 bg-gray-50 border border-gray-100">
               <div className="font-semibold text-gray-700 text-xs mb-1">💬 Feedback</div>
               <p className="text-gray-600 text-sm">{q.feedback}</p>
@@ -1146,8 +1134,8 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
             <StepByStep steps={q.steps} />
           </div>
 
-          {/* Action buttons */}
-          <div className="px-5 py-3 border-t border-gray-100 flex gap-2 shrink-0">
+          {/* Actions */}
+          <div className="px-4 py-3 border-t border-gray-100 flex gap-2 shrink-0">
             {q.status !== 'correct' && (
               <button onClick={() => setReattemptQ(q)}
                 className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full text-sm font-semibold border-2"
@@ -1155,15 +1143,14 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
                 🔄 Reattempt
               </button>
             )}
-            <button
-              onClick={() => { setShowChat(false); setShowVedChat(true); }}
+            <button onClick={() => setShowVedChat(true)}
               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full text-white font-semibold text-sm"
-              style={{ background: 'linear-gradient(135deg, #7B2FF7, #E8633B)' }}>
+              style={{ background: 'linear-gradient(135deg,#7B2FF7,#E8633B)' }}>
               🤖 Ask VED
             </button>
           </div>
         </div>
-      )}
+      </div>
 
 
       {/* Overlays */}
