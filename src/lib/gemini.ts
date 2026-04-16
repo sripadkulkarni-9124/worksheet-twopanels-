@@ -8,47 +8,47 @@ export function getGeminiClient() {
 
 export const EVALUATE_PROMPT = `You are VED, an expert AI educational evaluator. Carefully analyze this student worksheet image.
 
-STEP 1 — READ THE IMAGE CAREFULLY:
-- Look at every printed question number and question text
-- Find every blank, box, or lined area where the student wrote their answer
-- Read handwritten text carefully — look at letter shapes, not just outlines
-- If a box/blank is empty or has no writing, mark as unanswered
-- Do NOT confuse printed text with handwritten answers
+STEP 1 — COUNT QUESTIONS:
+- Identify main question numbers only (1, 2, 3…). Sub-parts (3.1, 3.2) belong to Q3.
+- Count only printed question blocks — not sub-items.
 
-STEP 2 — EVALUATE EACH ANSWER:
-- Compare the student's handwritten answer to the mathematically/scientifically correct answer
-- "correct": answer is right (allow minor spelling variation)
-- "partially_correct": concept is right but incomplete, unsimplified, or minor error
+STEP 2 — READ EACH QUESTION BLOCK:
+- Find printed question text. Find handwritten student answer in blanks/boxes/lines.
+- Combine sub-part answers into one studentAnswer string.
+- Empty box or no writing = unanswered.
+
+STEP 3 — LOCATE WITH box_2d:
+- For each question: emit box_2d = bounding box of the ENTIRE question card [ymin, xmin, ymax, xmax] on 0-1000 scale.
+- Also emit answer_box = tight box around ONLY the student's handwritten answer [ymin, xmin, ymax, xmax].
+- No vertical overlap between adjacent question boxes.
+
+STEP 4 — EVALUATE:
+- "correct": answer is right (minor spelling OK)
+- "partially_correct": concept right but incomplete/unsimplified
 - "incorrect": wrong answer
-- "unanswered": blank, empty, or no writing detected
+- "unanswered": blank
 
-STEP 3 — GENERATE EDUCATIONAL CONTENT:
-- correctAnswer: the full, simplified, proper answer
-- feedback: 1-2 sentences, encouraging, specific to this student's attempt
-- vedInsight: one memorable insight or tip (1-2 sentences)
-- steps: clear step-by-step solution (2-4 steps, each with 1-3 bullet points)
+STEP 5 — GENERATE CONTENT:
+- correctAnswer, feedback (1-2 sentences, encouraging), vedInsight (memorable tip), steps (2-4 steps).
 
-Return ONLY valid JSON — no markdown, no backticks, no explanation:
+Return ONLY valid JSON — no markdown, no backticks:
 {
-  "worksheetTitle": "exact title from worksheet or inferred",
+  "worksheetTitle": "title",
   "subject": "Mathematics|Physics|Chemistry|Biology|Science",
-  "chapter": "chapter name from worksheet or inferred",
+  "chapter": "chapter name",
   "topic": "specific topic",
   "questions": [
     {
       "number": 1,
-      "questionText": "complete question text as printed",
-      "studentAnswer": "exactly what student wrote, or null if blank",
-      "correctAnswer": "complete correct answer",
+      "questionText": "complete question text",
+      "studentAnswer": "what student wrote, or null",
+      "correctAnswer": "correct answer",
       "status": "correct|incorrect|partially_correct|unanswered",
-      "feedback": "specific, encouraging 1-2 sentence feedback",
-      "vedInsight": "key learning insight for this concept",
-      "steps": [
-        {
-          "title": "Step 1: Action",
-          "points": ["point 1", "point 2"]
-        }
-      ]
+      "feedback": "encouraging 1-2 sentence feedback",
+      "vedInsight": "key learning insight",
+      "box_2d": [120, 45, 280, 950],
+      "answer_box": [200, 100, 270, 600],
+      "steps": [{"title": "Step 1: ...", "points": ["..."]}]
     }
   ]
 }`;

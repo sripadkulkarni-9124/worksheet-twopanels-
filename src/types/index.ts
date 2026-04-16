@@ -12,6 +12,9 @@ export interface EvaluatedQuestion {
   feedback: string;
   vedInsight: string;
   steps: SolutionStep[];
+  // Bounding boxes from Gemini, 0-1 normalized (set by evaluate route after /1000)
+  bboxNorm?: [number, number, number, number]; // [ymin, xmin, ymax, xmax]
+  answerBoxNorm?: [number, number, number, number];
 }
 
 export interface EvaluationResult {

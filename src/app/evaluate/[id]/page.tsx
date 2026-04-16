@@ -877,18 +877,18 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
     if (!s) return;
     setSession(s);
 
-    // Fetch if no marks, old format (no bbox), or bbox count doesn't match questions (small bbox = answer-only old format)
-    const bboxCount = s.autoMarks?.filter(m => m.type === 'bbox' || m.type === 'quad').length ?? 0;
-    const hasQuad = s.autoMarks?.some(m => m.type === 'quad') ?? false;
-    // Re-annotate if: no marks, count mismatch, or old bbox-only format (no quad polygons yet)
-    const needsAnnotate = !s.autoMarks || s.autoMarks.length === 0 || bboxCount !== s.result.questions.length || !hasQuad;
+    // Annotate is pure math — re-run if no marks, count mismatch, or questions now have bboxNorm (new evaluate)
+    const quadCount = s.autoMarks?.filter(m => m.type === 'quad').length ?? 0;
+    const hasBboxNorm = s.result.questions.some(q => q.bboxNorm);
+    const needsAnnotate = !s.autoMarks || s.autoMarks.length === 0
+      || quadCount !== s.result.questions.length
+      || (hasBboxNorm && !s.autoMarks?.some(m => m.type === 'badge'));
     if (needsAnnotate) {
-      const base64 = s.imageDataUrl.split(',')[1];
-      const mimeType = s.imageDataUrl.split(';')[0].split(':')[1];
       fetch('/api/annotate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, mimeType, questions: s.result.questions }),
+        // Pass questions (which carry bboxNorm from evaluate); no image needed
+        body: JSON.stringify({ questions: s.result.questions }),
       })
         .then(r => r.json())
         .then(data => {
@@ -939,7 +939,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
         const ar = await fetch('/api/annotate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64, mimeType, questions: result.questions }),
+          body: JSON.stringify({ questions: result.questions }),
         });
         autoMarks = (await ar.json()).marks ?? [];
       } catch { /* optional */ }

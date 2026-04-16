@@ -89,7 +89,7 @@ export default function Home() {
         const annotateRes = await fetch('/api/annotate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64, mimeType, questions: result.questions }),
+          body: JSON.stringify({ questions: result.questions }),
         });
         const annotateData = await annotateRes.json();
         autoMarks = annotateData.marks ?? [];

@@ -1,6 +1,70 @@
 import { NextRequest } from 'next/server';
 import { getGeminiClient, EVALUATE_PROMPT } from '@/lib/gemini';
-import { EvaluationResult } from '@/types';
+import { EvaluationResult, EvaluatedQuestion } from '@/types';
+
+/** Sanitize Gemini box_2d coords per question — clamp, fix overlaps, normalize to 0-1 */
+function sanitizeBboxes(questions: EvaluatedQuestion[]): EvaluatedQuestion[] {
+  const N = questions.length;
+  if (!N) return questions;
+
+  // Parse & clamp each bbox
+  questions = questions.map(q => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = (q as any).box_2d;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawAns = (q as any).answer_box;
+    let b: [number,number,number,number] | undefined;
+    let a: [number,number,number,number] | undefined;
+
+    if (Array.isArray(raw) && raw.length === 4) {
+      let [y0, x0, y1, x1] = raw.map(Number);
+      // Auto-detect 0-100 scale
+      if (Math.max(y0,x0,y1,x1) <= 100) { y0*=10; x0*=10; y1*=10; x1*=10; }
+      // Clamp
+      y0 = Math.max(0, Math.min(1000, y0));
+      x0 = Math.max(0, Math.min(1000, x0));
+      y1 = Math.max(0, Math.min(1000, y1));
+      x1 = Math.max(0, Math.min(1000, x1));
+      // Swap if inverted
+      if (y0 > y1) [y0, y1] = [y1, y0];
+      if (x0 > x1) [x0, x1] = [x1, x0];
+      // Min box size
+      if (y1 - y0 < 50) y1 = y0 + 50;
+      if (x1 - x0 < 100) x1 = x0 + 100;
+      b = [y0, x0, y1, x1];
+    }
+
+    if (Array.isArray(rawAns) && rawAns.length === 4) {
+      let [y0, x0, y1, x1] = rawAns.map(Number);
+      if (Math.max(y0,x0,y1,x1) <= 100) { y0*=10; x0*=10; y1*=10; x1*=10; }
+      y0 = Math.max(0, Math.min(1000, y0));
+      x0 = Math.max(0, Math.min(1000, x0));
+      y1 = Math.max(0, Math.min(1000, y1));
+      x1 = Math.max(0, Math.min(1000, x1));
+      if (y0 > y1) [y0, y1] = [y1, y0];
+      if (x0 > x1) [x0, x1] = [x1, x0];
+      a = [y0, x0, y1, x1];
+    }
+
+    return { ...q, bboxNorm: b ? [b[0]/1000, b[1]/1000, b[2]/1000, b[3]/1000] as [number,number,number,number] : undefined,
+                   answerBoxNorm: a ? [a[0]/1000, a[1]/1000, a[2]/1000, a[3]/1000] as [number,number,number,number] : undefined };
+  });
+
+  // Fix overlaps: sort by ymin, push down overlapping boxes
+  const withBox = questions.filter(q => q.bboxNorm);
+  withBox.sort((a, b) => (a.bboxNorm![0]) - (b.bboxNorm![0]));
+  for (let i = 1; i < withBox.length; i++) {
+    const prev = withBox[i-1].bboxNorm!;
+    const cur  = withBox[i].bboxNorm!;
+    if (cur[0] < prev[2]) {
+      const mid = (prev[2] + cur[0]) / 2;
+      prev[2] = mid;
+      cur[0]  = mid;
+    }
+  }
+
+  return questions;
+}
 
 function mockResult(): EvaluationResult {
   return {
@@ -66,7 +130,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ success: true, ...mockResult() });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { thinkingConfig: { thinkingBudget: 0 } } as object });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { thinkingConfig: { thinkingBudget: 4096 } } as object });
 
     const result = await model.generateContent([
       EVALUATE_PROMPT,
@@ -74,9 +138,12 @@ export async function POST(request: NextRequest) {
     ]);
 
     const text = result.response.text();
-    // Strip markdown code fences if present
     const clean = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
-    const data: EvaluationResult = JSON.parse(clean);
+    const raw = JSON.parse(clean);
+    const data: EvaluationResult = {
+      ...raw,
+      questions: sanitizeBboxes(raw.questions ?? []),
+    };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const usage = result.response.usageMetadata as any;
